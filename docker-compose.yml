@@ -1,0 +1,58 @@
+version: '3'
+
+services:
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - 80:8000
+    depends_on:
+      - mysql
+      - redis
+      - mongo
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PASSWORD: root
+      REDIS_HOST: redis
+      MONGO_HOST: mongo
+      MONGO_PASSWORD: root
+    networks:
+      - my-bridge
+    restart: always
+
+  mysql:
+    image: mysql:5.7
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: mydevops
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - my-bridge
+
+  redis:
+    image: redis
+    restart: always
+    ports: ["6379"]
+    networks:
+      - my-bridge
+
+  mongo:
+    image: mongo
+    restart: always
+    ports: ["27017"]
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: root
+    networks:
+      - my-bridge
+
+volumes:
+  mysql-data:
+
+networks:
+  my-bridge:
+    driver: bridge

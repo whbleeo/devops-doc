@@ -1,0 +1,139 @@
+variables:
+  GIT_SSL_NO_VERIFY: "1"
+
+stages:
+  - citest
+  - build
+  - deploy
+
+test_pep8:
+  stage: citest
+    - pip install tox
+    - tox -e pep8
+  tags:
+    - python2.7
+  except:
+    - tags
+
+test_unittest-py27:
+  stage: citest
+    - pip install tox
+    - tox -e py27
+  tags:
+    - python2.7
+  except:
+    - tags
+
+test_unittest-py34:
+  stage: citest
+    - pip install tox
+    - tox -e py34
+  tags:
+    - python3.4
+  except:
+    - tags
+
+test_sphnix:
+  stage: citest
+    - pip install tox
+    - tox -e docs
+  tags:
+    - python2.7
+  except:
+    - tags
+
+test_build:
+  stage: build
+  tags:
+    - shell
+  script:
+    - docker compose -f ./docker-compose.yml build
+  except:
+    - master
+    - tags
+
+test_deploy:
+  stage: deploy
+  tags:
+    - shell
+  script:
+    - docker compose -f ./docker-compose.yml up
+  except:
+    - master
+    - tags
+
+pre_pep8:
+  stage: citest
+    - pip install tox
+    - tox -e pep8
+  tags:
+    - python2.7
+  except:
+    - tags
+
+pre_unittest-py27:
+  stage: citest
+    - pip install tox
+    - tox -e py27
+  tags:
+    - python2.7
+  except:
+    - tags
+
+pre_unittest-py34:
+  stage: citest
+    - pip install tox
+    - tox -e py34
+  tags:
+    - python3.4
+  except:
+    - tags
+
+pre_sphnix:
+  stage: citest
+    - pip install tox
+    - tox -e docs
+  tags:
+    - python2.7
+  except:
+    - tags
+
+pre_build:
+  stage: build
+  tags:
+    - shell
+  script:
+    - docker build -t mydevops:latest .
+    - docker tag mydevops:latest registry.example.com:5000/mydevops:latest
+    - docker push registry.example.com:5000/mydevops:latest
+  only:
+    - master
+
+pre_deploy:
+  stage: deploy
+  tags:
+    - shell
+  script:
+    - ssh root@master_pre "docker stack deploy mydevops --compose-file=docker-compose_pre.yml"
+  only:
+    - master
+
+prod_build:
+  stage: build
+  tags:
+    - shell
+  script:
+    - docker build -t registry.example.com:5000/mydevops:$CI_COMMIT_TAG .
+    - docker push registry.example.com:5000/mydevops:$CI_COMMIT_TAG
+  only:
+    - tags
+
+prod_deploy:
+  stage: deploy
+  tags:
+    - shell
+  script:
+    - ssh root@master_prod "export IMAGE_RELEASE=$CI_COMMIT_TAG"
+    - ssh root@master_prod "docker stack deploy mydevops --compose-file=docker-compose_prod.yml"
+  only:
+    - tags

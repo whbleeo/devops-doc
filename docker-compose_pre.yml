@@ -1,0 +1,101 @@
+version: '3'
+
+services:
+
+  web:
+    image: registry.example.com:5000/mydevops:latest
+    ports:
+      - 80:8000
+    depends_on:
+      - mysql
+      - redis
+      - mongo
+    secrets:
+      - mysql-pw
+      - mongo-pw
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PASSWORD: /run/secrets/mysql-pw
+      REDIS_HOST: redis
+      MONGO_HOST: mongo
+      MONGO_PASSWORD: /run/secrets/mongo-pw
+    networks:
+      - my-network
+    deploy:
+      mode: replicated
+      replicas: 2
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      update_config:
+        parallelism: 1
+        delay: 10s
+
+  mysql:
+    image: mysql:5.7
+    secrets:
+      - mysql-pw
+    environment:
+      MYSQL_ROOT_PASSWORD: /run/secrets/mysql-pw
+      MYSQL_DATABASE: mydevops
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - my-network
+    deploy:
+      mode: global
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints:
+          - node.role == manager
+
+  redis:
+    image: redis
+    ports: ["6379"]
+    networks:
+      - my-bridge
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  mongo:
+    image: mongo
+    ports: ["27017"]
+    secrets:
+      - mongo-pw
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: /run/secrets/mongo-pw
+    networks:
+      - my-bridge
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  visualizer:
+    image: dockersamples/visualizer:stable
+    ports:
+      - "8080:8080"
+    stop_grace_period: 1m30s
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    deploy:
+      placement:
+        constraints: [node.role == manager]
+
+volumes:
+  mysql-data:
+  
+secrets:
+  mysql-pw:
+    file: ./password
+  mongo-pw:
+    file: ./password1
+
+networks:
+  my-network:
+    driver: overlay
