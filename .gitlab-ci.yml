@@ -1,139 +1,209 @@
-variables:
-  GIT_SSL_NO_VERIFY: "1"
+image: $REGISTRY_URL/devops/dind-jacoco:latest
+
+before_script:
+- docker login -u $HARBOR_USERNAME -p $HARBOR_PASSWORD $REGISTRY_URL
+- docker login -u $HARBOR_USERNAME -p $HARBOR_PASSWORD $TECH_CENTER_REGISTRY_URL
+- . gitversion.properties
+- export IMAGE_VERSION=$GitVersion_MajorMinorPatch-$GitVersion_PreReleaseLabel-${GitVersion_Sha:0:7}
+- export SONAR_URL="http://10.12.0.7:9000"
+- export SONAR_LOGIN="admin"
+- export SONAR_PASS="admin"
 
 stages:
-  - citest
-  - build
-  - deploy
+- test
+- build
+- deploy
 
-test_pep8:
-  stage: citest
-    - pip install tox
-    - tox -e pep8
+test:
+  stage: test
+  script:
+    - mvn clean test
   tags:
-    - python2.7
-  except:
-    - tags
+    - ci
 
-test_unittest-py27:
-  stage: citest
-    - pip install tox
-    - tox -e py27
+sonar_analyze:
+  stage: test
+  script:
+    - mvn clean install -Dmaven.test.skip=true
+    - mvn --batch-mode verify sonar:sonar -Dsonar.host.url=$SONAR_URL -Dsonar.login=$SONAR_LOGIN -Dsonar.password=$SONAR_PASS -Dsonar.gitlab.failure_notification_mode="exit-code" -Dsonar.gitlab.commit_sha=${CI_BUILD_REF} -Dsonar.gitlab.ref_name=$CI_BUILD_REF_NAME -Dsonar.gitlab.project_id=$CI_PROJECT_ID -Dsonar.gitlab.query_wait=5000 -Dmaven.test.skip=true
+  only:
+    - /^feature\/.*$/
   tags:
-    - python2.7
-  except:
-    - tags
+    - ci
 
-test_unittest-py34:
-  stage: citest
-    - pip install tox
-    - tox -e py34
+sonar_preview:
+  stage: test
+  script:
+    - mvn clean install -Dmaven.test.skip=true
+    - mvn --batch-mode verify sonar:sonar -Dsonar.host.url=$SONAR_URL -Dsonar.login=$SONAR_LOGIN -Dsonar.password=$SONAR_PASS -Dsonar.analysis.mode=preview -Dsonar.gitlab.project_id=$CI_PROJECT_ID -Dsonar.gitlab.commit_sha=$CI_BUILD_REF -Dsonar.gitlab.ref_name=$CI_BUILD_REF_NAME -Dsonar.issuesReport.html.enable=true -Dsonar.gitlab.ping_user=true -Dsonar.gitlab.failure_notification_mode=commit-status -Dsonar.gitlab.query_max_retry=50 -Dmaven.test.skip=true
+  only:
+    - /^feature\/.*$/
   tags:
-    - python3.4
-  except:
-    - tags
+    - ci
 
-test_sphnix:
-  stage: citest
-    - pip install tox
-    - tox -e docs
-  tags:
-    - python2.7
-  except:
-    - tags
-
-test_build:
+build-apidocs-tech-center-k8s-test1:
   stage: build
-  tags:
-    - shell
+  when: manual
   script:
-    - docker compose -f ./docker-compose.yml build
-  except:
-    - master
-    - tags
-
-test_deploy:
-  stage: deploy
+    - mvn clean package -P test -Dmaven.test.skip=true
+    - cd app/web
+    - docker build -t $TECH_CENTER_REGISTRY_URL/marketing-$CI_BUILD_REF_NAME-charon-apidocs:$CI_BUILD_REF .
+    - docker tag $TECH_CENTER_REGISTRY_URL/marketing-$CI_BUILD_REF_NAME-charon-apidocs:$CI_BUILD_REF $TECH_CENTER_REGISTRY_URL/test1/marketing-$CI_BUILD_REF_NAME-charon-apidocs:$IMAGE_VERSION
+    - docker tag $TECH_CENTER_REGISTRY_URL/marketing-$CI_BUILD_REF_NAME-charon-apidocs:$CI_BUILD_REF $TECH_CENTER_REGISTRY_URL/test2/marketing-$CI_BUILD_REF_NAME-charon-apidocs:$IMAGE_VERSION
+    - docker push $TECH_CENTER_REGISTRY_URL/test1/marketing-$CI_BUILD_REF_NAME-charon-apidocs:$IMAGE_VERSION
+    - docker push $TECH_CENTER_REGISTRY_URL/test2/marketing-$CI_BUILD_REF_NAME-charon-apidocs:$IMAGE_VERSION
+    - docker rmi -f $(docker images -q $TECH_CENTER_REGISTRY_URL/marketing-$CI_BUILD_REF_NAME-charon-apidocs:$CI_BUILD_REF)
+  only:
+    - dev
   tags:
-    - shell
-  script:
-    - docker compose -f ./docker-compose.yml up
-  except:
-    - master
-    - tags
+    - ci
 
-pre_pep8:
-  stage: citest
-    - pip install tox
-    - tox -e pep8
-  tags:
-    - python2.7
-  except:
-    - tags
-
-pre_unittest-py27:
-  stage: citest
-    - pip install tox
-    - tox -e py27
-  tags:
-    - python2.7
-  except:
-    - tags
-
-pre_unittest-py34:
-  stage: citest
-    - pip install tox
-    - tox -e py34
-  tags:
-    - python3.4
-  except:
-    - tags
-
-pre_sphnix:
-  stage: citest
-    - pip install tox
-    - tox -e docs
-  tags:
-    - python2.7
-  except:
-    - tags
-
-pre_build:
+build-apidocs-tech-center-k8s-test2:
   stage: build
-  tags:
-    - shell
   script:
-    - docker build -t mydevops:latest .
-    - docker tag mydevops:latest registry.example.com:5000/mydevops:latest
-    - docker push registry.example.com:5000/mydevops:latest
+    - mvn clean package -P test -Dmaven.test.skip=true
+    - cd app/web
+    - docker build -t $TECH_CENTER_REGISTRY_URL/marketing-release-charon-apidocs:$CI_BUILD_REF .
+    - docker tag $TECH_CENTER_REGISTRY_URL/marketing-release-charon-apidocs:$CI_BUILD_REF $TECH_CENTER_REGISTRY_URL/test1/marketing-release-charon-apidocs:$IMAGE_VERSION
+    - docker tag $TECH_CENTER_REGISTRY_URL/marketing-release-charon-apidocs:$CI_BUILD_REF $TECH_CENTER_REGISTRY_URL/test2/marketing-release-charon-apidocs:$IMAGE_VERSION
+    - docker push $TECH_CENTER_REGISTRY_URL/test1/marketing-release-charon-apidocs:$IMAGE_VERSION
+    - docker push $TECH_CENTER_REGISTRY_URL/test2/marketing-release-charon-apidocs:$IMAGE_VERSION
+    - docker rmi -f $(docker images -q $TECH_CENTER_REGISTRY_URL/marketing-release-charon-apidocs:$CI_BUILD_REF)
   only:
-    - master
+    - /^release\/.*$/
+  tags:
+    - ci
 
-pre_deploy:
+
+build-tech-center-k8s-test1:
+    stage: build
+    script:
+      - sed -i "s/\$NAME/$CI_BUILD_REF_NAME/g" Dockerfile_nwd_k8s
+      - sed -i "s/\$IMAGE_VERSION/$IMAGE_VERSION/g" Dockerfile_nwd_k8s
+      - sed -i "s/\$REGISTRY_URL/$REGISTRY_URL/g" Dockerfile_nwd_k8s
+      - docker build -f Dockerfile_nwd_k8s -t $TECH_CENTER_REGISTRY_URL/test1/marketing-$CI_BUILD_REF_NAME-charon:$IMAGE_VERSION .
+      - docker tag $TECH_CENTER_REGISTRY_URL/test1/marketing-$CI_BUILD_REF_NAME-charon:$IMAGE_VERSION $TECH_CENTER_REGISTRY_URL/test2/marketing-$CI_BUILD_REF_NAME-charon:$IMAGE_VERSION
+      - docker push $TECH_CENTER_REGISTRY_URL/test1/marketing-$CI_BUILD_REF_NAME-charon:$IMAGE_VERSION
+      - docker push $TECH_CENTER_REGISTRY_URL/test2/marketing-$CI_BUILD_REF_NAME-charon:$IMAGE_VERSION
+      - docker rmi -f $TECH_CENTER_REGISTRY_URL/test1/marketing-$CI_BUILD_REF_NAME-charon:$IMAGE_VERSION
+      - docker rmi -f $TECH_CENTER_REGISTRY_URL/test1/marketing-$CI_BUILD_REF_NAME-charon:$IMAGE_VERSION
+    only:
+      - dev
+    tags:
+      - ci
+
+build-tech-center-k8s-test2:
+    stage: build
+    script:
+      - if [ "$CI_BUILD_REF_NAME" = "release/${CI_BUILD_REF_NAME#release/}" ]; then NAME=release-${CI_BUILD_REF_NAME#release/}; else NAME=release; fi
+      - sed -i "s/\$NAME/$NAME/g" Dockerfile_nwd_k8s
+      - sed -i "s/\$IMAGE_VERSION/$IMAGE_VERSION/g" Dockerfile_nwd_k8s
+      - sed -i "s/\$REGISTRY_URL/$REGISTRY_URL/g" Dockerfile_nwd_k8s
+      - docker build -f Dockerfile_nwd_k8s -t $TECH_CENTER_REGISTRY_URL/test1/marketing-release-charon:$IMAGE_VERSION .
+      - docker tag $TECH_CENTER_REGISTRY_URL/test1/marketing-release-charon:$IMAGE_VERSION $TECH_CENTER_REGISTRY_URL/test2/marketing-release-charon:$IMAGE_VERSION
+      - docker push $TECH_CENTER_REGISTRY_URL/test1/marketing-release-charon:$IMAGE_VERSION
+      - docker push $TECH_CENTER_REGISTRY_URL/test2/marketing-release-charon:$IMAGE_VERSION
+      - docker rmi -f $TECH_CENTER_REGISTRY_URL/test1/marketing-release-charon:$IMAGE_VERSION
+      - docker rmi -f $TECH_CENTER_REGISTRY_URL/test2/marketing-release-charon:$IMAGE_VERSION
+    only:
+      - /^release\/.*$/
+    tags:
+      - ci
+
+
+deploy-tech-center-k8s-test1:
   stage: deploy
-  tags:
-    - shell
   script:
-    - ssh root@master_pre "docker stack deploy mydevops --compose-file=docker-compose_pre.yml"
+    - export NACOS_CONFIG_ENABLE=true
+    - export NACOS_CONFIG_SERVER_URL="http://192.168.32.200:8848"
+    - export NACOS_CONFIG_NAMESPACE="4b3ae1c7-52cf-42dc-b396-fb1dc972a4e2"
+    - export NACOS_CONFIG_ACCESS_KEY=""
+    - export NACOS_CONFIG_SECRET_KEY=""
+    - export NACOS_CONFIG_DATA_ID=charon.properties
+    - export NACOS_CONFIG_TYPE=PROPERTIES
+    - export NACOS_CONFIG_CONTEXT_PATH=nacos
+    - export NACOS_CONFIG_AUTO_REFRESH=true
+    - export LOG_PATH=/data/log
+    - export JACOCO="-javaagent:/agent-runtime.jar=output=tcpserver,address=*"
+    - export REMOTE_DEBUG="-Xdebug -Xrunjdwp:server=y,transport=dt_socket,address=$REMOTE_DEBUG_PORT,suspend=n"
+    - export DUBBO_PORT=9007
+    - export REST_PORT=8080
+    - export REMOTE_DEBUG_PORT=19006
+    - export TARGET_BRANCH=dev
+    - export JAVA_ARGS="-Xmx2G -Xms2G"
+    - export appenv="{\"JAVA_OPTS\":\"$JAVA_OPTS\",
+        \"REMOTE_DEBUG\":\"$REMOTE_DEBUG\",
+        \"nacos.config.bootstrap.enable\":\"$NACOS_CONFIG_ENABLE\",
+        \"nacos.config.bootstrap.log.enable\":\"$NACOS_CONFIG_ENABLE\",
+        \"nacos.config.server-addr\":\"$NACOS_CONFIG_SERVER_URL\",
+        \"nacos.config.namespace\":\"$NACOS_CONFIG_NAMESPACE\",
+        \"nacos.config.access-key\":\"$NACOS_CONFIG_ACCESS_KEY\",
+        \"nacos.config.secret-key\":\"$NACOS_CONFIG_SECRET_KEY\",
+        \"nacos.config.data-id\":\"$NACOS_CONFIG_DATA_ID\",
+        \"nacos.config.type\":\"$NACOS_CONFIG_TYPE\",
+        \"nacos.config.context-path\":\"$NACOS_CONFIG_CONTEXT_PATH\",
+        \"nacos.config.auto-refresh\":\"$NACOS_CONFIG_AUTO_REFRESH\",
+        \"LOG_PATH\":\"$LOG_PATH\",
+        \"server.port\":\"$REST_PORT\",
+        \"dubbo.port\":\"$DUBBO_PORT\"}"
+    - echo $appenv
+    - printf -v data '{"cluster":"yy-t-kubernetes-cluster01", "env":"test1", "appName":"marketing-%s-charon","imageTag":"%s/test1/marketing-%s-charon:%s","storage":"sh-ceph-1","namespace":"ywztyfb", "appenv":'%s'}' $TARGET_BRANCH $TECH_CENTER_REGISTRY_URL $TARGET_BRANCH $IMAGE_VERSION "$appenv"
+    - echo $data
+    - response=$(curl -s -H "Content-Type:application/json" -XPOST --max-time 5000 -d "$data" http://kylintest.niwodai.net/cloud/k8s/deploys/)
+    - echo $response
+    - echo $response|grep true|wc -l
   only:
-    - master
-
-prod_build:
-  stage: build
+    - dev
   tags:
-    - shell
-  script:
-    - docker build -t registry.example.com:5000/mydevops:$CI_COMMIT_TAG .
-    - docker push registry.example.com:5000/mydevops:$CI_COMMIT_TAG
-  only:
-    - tags
+    - ci
 
-prod_deploy:
+
+deploy-tech-center-k8s-test2:
   stage: deploy
-  tags:
-    - shell
+  when: manual
   script:
-    - ssh root@master_prod "export IMAGE_RELEASE=$CI_COMMIT_TAG"
-    - ssh root@master_prod "docker stack deploy mydevops --compose-file=docker-compose_prod.yml"
+    - if [ "$CI_BUILD_REF_NAME" = "release/${CI_BUILD_REF_NAME#release/}" ]; then NAME=release-${CI_BUILD_REF_NAME#release/}; else NAME=release; fi
+    - export NACOS_CONFIG_ENABLE=true
+    - export NACOS_CONFIG_SERVER_URL="http://192.168.32.200:8848"
+    - export NACOS_CONFIG_NAMESPACE="aa7b1add-acf2-44de-8180-501a4e4e4d98"
+    - export NACOS_CONFIG_ACCESS_KEY=""
+    - export NACOS_CONFIG_SECRET_KEY=""
+    - export NACOS_CONFIG_DATA_ID=charon.properties
+    - export NACOS_CONFIG_TYPE=PROPERTIES
+    - export NACOS_CONFIG_CONTEXT_PATH=nacos
+    - export NACOS_CONFIG_AUTO_REFRESH=true
+    - export LOG_PATH=/data/log
+    - export JACOCO="-javaagent:/agent-runtime.jar=output=tcpserver,address=*"
+    - export REMOTE_DEBUG="-Xdebug -Xrunjdwp:server=y,transport=dt_socket,address=$REMOTE_DEBUG_PORT,suspend=n"
+    - export DUBBO_PORT=9007
+    - export REST_PORT=8080
+    - export REMOTE_DEBUG_PORT=19006
+    - export HOST_IP=10.12.0.226
+    - export TARGET_BRANCH=$NAME
+    - export JAVA_ARGS="-Xmx2G -Xms2G"
+    - export appenv="{\"JAVA_OPTS\":\"$JAVA_OPTS\",
+        \"REMOTE_DEBUG\":\"$REMOTE_DEBUG\",
+        \"nacos.config.bootstrap.enable\":\"$NACOS_CONFIG_ENABLE\",
+        \"nacos.config.bootstrap.log.enable\":\"$NACOS_CONFIG_ENABLE\",
+        \"nacos.config.server-addr\":\"$NACOS_CONFIG_SERVER_URL\",
+        \"nacos.config.namespace\":\"$NACOS_CONFIG_NAMESPACE\",
+        \"nacos.config.access-key\":\"$NACOS_CONFIG_ACCESS_KEY\",
+        \"nacos.config.secret-key\":\"$NACOS_CONFIG_SECRET_KEY\",
+        \"nacos.config.data-id\":\"$NACOS_CONFIG_DATA_ID\",
+        \"nacos.config.type\":\"$NACOS_CONFIG_TYPE\",
+        \"nacos.config.context-path\":\"$NACOS_CONFIG_CONTEXT_PATH\",
+        \"nacos.config.auto-refresh\":\"$NACOS_CONFIG_AUTO_REFRESH\",
+        \"LOG_PATH\":\"$LOG_PATH\",
+        \"server.port\":\"$REST_PORT\",
+        \"dubbo.port\":\"$DUBBO_PORT\"}"
+    - echo $appenv
+    - printf -v data '{"cluster":"yy-t-kubernetes-cluster01", "env":"test2", "appName":"marketing-release-charon","imageTag":"%s/test2/marketing-release-charon:%s","storage":"sh-ceph-1","namespace":"ywztyfb", "appenv":'%s'}' $TECH_CENTER_REGISTRY_URL  $IMAGE_VERSION "$appenv"
+    - echo $data
+    - response=$(curl -s -H "Content-Type:application/json" -XPOST --max-time 5000 -d "$data" http://kylintest.niwodai.net/cloud/k8s/deploys/)
+    - echo $response
+    - echo $response|grep true|wc -l
   only:
-    - tags
+    - /^release\/.*$/
+  tags:
+    - ci
+    
